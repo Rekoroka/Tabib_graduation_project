@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:intl/intl.dart';
 
-import 'home_screen.dart';
-//import 'login_screen.dart';
+import '../shared/home_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -22,11 +22,18 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _dobController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _specializationController =
+      TextEditingController();
+  final TextEditingController _licenseController = TextEditingController();
 
   final _formKey = GlobalKey<FormState>();
   bool _loading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+
+  // نوع المستخدم (طبيب أو مريض)
+  String _userType = 'patient';
 
   // متغيرات لتتبع أخطاء التحقق
   String? _nameError;
@@ -34,6 +41,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
   String? _emailError;
   String? _passwordError;
   String? _confirmPasswordError;
+  String? _phoneError;
+  String? _specializationError;
+  String? _licenseError;
 
   // متغيرات لتتبع شروط كلمة المرور
   bool _hasMinLength = false;
@@ -41,6 +51,25 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _hasLowerCase = false;
   bool _hasNumber = false;
   bool _hasSpecialChar = false;
+
+  // قائمة التخصصات الطبية
+  final List<String> _specializations = [
+    'General Practitioner',
+    'Cardiologist',
+    'Dermatologist',
+    'Neurologist',
+    'Pediatrician',
+    'Psychiatrist',
+    'Surgeon',
+    'Dentist',
+    'Ophthalmologist',
+    'Orthopedist',
+    'Gynecologist',
+    'Urologist',
+    'Endocrinologist',
+    'Gastroenterologist',
+    'Other',
+  ];
 
   // دالة للتحقق من الحقول غير الفارغة
   String? _validateNotEmpty(String? value, String fieldName) {
@@ -81,6 +110,43 @@ class _SignUpScreenState extends State<SignUpScreen> {
         _emailError = null;
       }
     });
+  }
+
+  // تحقق من رقم الهاتف
+  void _validatePhone() {
+    setState(() {
+      final value = _phoneController.text;
+      _phoneError = _validateNotEmpty(value, "phone number");
+
+      if (_phoneError == null &&
+          !RegExp(r'^[0-9+\-\s()]{10,}$').hasMatch(value)) {
+        _phoneError = "⚠️ Enter a valid phone number";
+      }
+    });
+  }
+
+  // تحقق من التخصص (للأطباء فقط)
+  void _validateSpecialization() {
+    if (_userType == 'doctor') {
+      setState(() {
+        _specializationError = _validateNotEmpty(
+          _specializationController.text,
+          "specialization",
+        );
+      });
+    }
+  }
+
+  // تحقق من الرخصة الطبية (للأطباء فقط)
+  void _validateLicense() {
+    if (_userType == 'doctor') {
+      setState(() {
+        _licenseError = _validateNotEmpty(
+          _licenseController.text,
+          "medical license number",
+        );
+      });
+    }
   }
 
   // تحقق من كلمة المرور مع الشروط
@@ -137,14 +203,23 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _validateName();
     _validateDob();
     _validateEmail();
+    _validatePhone();
     _validatePassword();
     _validateConfirmPassword();
+
+    if (_userType == 'doctor') {
+      _validateSpecialization();
+      _validateLicense();
+    }
 
     return _nameError == null &&
         _dobError == null &&
         _emailError == null &&
+        _phoneError == null &&
         _passwordError == null &&
-        _confirmPasswordError == null;
+        _confirmPasswordError == null &&
+        (_userType == 'patient' ||
+            (_specializationError == null && _licenseError == null));
   }
 
   Future<void> _signUp() async {
@@ -165,21 +240,26 @@ class _SignUpScreenState extends State<SignUpScreen> {
     setState(() => _loading = true);
 
     try {
-      // إنشاء الحساب
+      // إنشاء الحساب في Firebase Auth
       UserCredential userCredential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(
             email: _emailController.text.trim(),
             password: _passwordController.text.trim(),
           );
 
+      // ⚡ إرسال بيانات المستخدم إلى الباكيند الخاص بكم
+      await _sendUserDataToBackend(userCredential.user!.uid);
+
       // إرسال التحقق من البريد الإلكتروني
       await userCredential.user!.sendEmailVerification();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              "✅ Account created successfully! Please check your email for verification.",
+              _userType == 'patient'
+                  ? "✅ Account created successfully! Please check your email for verification."
+                  : "✅ Doctor account created! Your account is pending verification.",
             ),
             backgroundColor: Colors.green,
           ),
@@ -232,6 +312,56 @@ class _SignUpScreenState extends State<SignUpScreen> {
       }
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ⚡ دالة لإرسال بيانات المستخدم إلى الباكيند الخاص بكم
+  Future<void> _sendUserDataToBackend(String userId) async {
+    try {
+      final userData = {
+        'user_id': userId,
+        'name': _nameController.text.trim(),
+        'email': _emailController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'date_of_birth': _dobController.text.trim(),
+        'address': _addressController.text.trim(),
+        'user_type': _userType,
+        'specialization': _userType == 'doctor'
+            ? _specializationController.text.trim()
+            : null,
+        'medical_license': _userType == 'doctor'
+            ? _licenseController.text.trim()
+            : null,
+        'is_verified': _userType == 'patient',
+        'created_at': DateTime.now().toIso8601String(),
+        'status': 'active',
+        // ⚡ إضافة حقول جاهزة للتكامل مع الذكاء الاصطناعي
+        'ai_diagnosis_enabled': true,
+        'chat_system_ready': true,
+        'file_upload_enabled': true,
+      };
+
+      // 🔧 هنا ضع رابط الـ API الخاص بباكاند فريقكم
+      // final response = await http.post(
+      //   Uri.parse('https://your-backend-api.com/api/users/register'),
+      //   headers: {'Content-Type': 'application/json'},
+      //   body: jsonEncode(userData),
+      // );
+
+      // if (response.statusCode != 200) {
+      //   throw Exception('Failed to register user in backend');
+      // }
+
+      // ⏳ مؤقتاً: حفظ البيانات في Firestore حتى جاهزية الباكيند
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .set(userData);
+
+      print('✅ User data sent to backend successfully');
+    } catch (e) {
+      print('❌ Error sending user data to backend: $e');
+      // لا نرمي الخطأ هنا لأن الحساب أنشئ بنجاح في Firebase Auth
     }
   }
 
@@ -325,7 +455,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     if (pickedDate != null) {
       setState(() {
         _dobController.text = DateFormat('yyyy-MM-dd').format(pickedDate);
-        _validateDob(); // التحقق بعد اختيار التاريخ
+        _validateDob();
       });
     }
   }
@@ -392,6 +522,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   key: _formKey,
                   child: ListView(
                     children: [
+                      // User Type Selection
+                      _buildUserTypeSelection(),
+                      const SizedBox(height: 15),
+
                       // Full Name
                       TextFormField(
                         controller: _nameController,
@@ -435,6 +569,26 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         onChanged: (value) => _validateEmail(),
                         onEditingComplete: _validateEmail,
                       ),
+                      const SizedBox(height: 15),
+
+                      // Phone Number
+                      TextFormField(
+                        controller: _phoneController,
+                        decoration: InputDecoration(
+                          labelText: "Phone Number",
+                          prefixIcon: const Icon(Icons.phone),
+                          border: const OutlineInputBorder(),
+                          errorText: _phoneError,
+                        ),
+                        keyboardType: TextInputType.phone,
+                        textInputAction: TextInputAction.next,
+                        onChanged: (value) => _validatePhone(),
+                        onEditingComplete: _validatePhone,
+                      ),
+                      const SizedBox(height: 15),
+
+                      // Doctor Specific Fields
+                      if (_userType == 'doctor') ..._buildDoctorFields(),
                       const SizedBox(height: 15),
 
                       // Password
@@ -522,49 +676,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       const SizedBox(height: 20),
 
                       // Sign Up button
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
-                            ),
-                          ),
-                          onPressed: _loading ? null : _signUp,
-                          child: _loading
-                              ? const CircularProgressIndicator(
-                                  color: Colors.white,
-                                )
-                              : const Text(
-                                  "Sign Up",
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                        ),
-                      ),
+                      _buildSignUpButton(),
                       const SizedBox(height: 15),
 
                       // Back to Login
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text("Already have an account? "),
-                          GestureDetector(
-                            onTap: _navigateToLogin,
-                            child: const Text(
-                              "Login",
-                              style: TextStyle(
-                                color: Colors.purple,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      _buildLoginRedirect(),
                     ],
                   ),
                 ),
@@ -573,6 +689,170 @@ class _SignUpScreenState extends State<SignUpScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // 🎯 بناء جزء اختيار نوع المستخدم
+  Widget _buildUserTypeSelection() {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "I am a:",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text("Patient"),
+                    selected: _userType == 'patient',
+                    onSelected: (selected) {
+                      setState(() {
+                        _userType = 'patient';
+                      });
+                    },
+                    selectedColor: Colors.blue,
+                    labelStyle: TextStyle(
+                      color: _userType == 'patient'
+                          ? Colors.white
+                          : Colors.black,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text("Doctor"),
+                    selected: _userType == 'doctor',
+                    onSelected: (selected) {
+                      setState(() {
+                        _userType = 'doctor';
+                      });
+                    },
+                    selectedColor: Colors.green,
+                    labelStyle: TextStyle(
+                      color: _userType == 'doctor'
+                          ? Colors.white
+                          : Colors.black,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_userType == 'doctor') ...[
+              const SizedBox(height: 10),
+              Text(
+                "🔒 Doctor accounts require verification",
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.orange[700],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 🎯 بناء حقول الأطباء
+  List<Widget> _buildDoctorFields() {
+    return [
+      DropdownButtonFormField<String>(
+        value: _specializationController.text.isEmpty
+            ? null
+            : _specializationController.text,
+        decoration: InputDecoration(
+          labelText: "Specialization",
+          prefixIcon: const Icon(Icons.medical_services),
+          border: const OutlineInputBorder(),
+          errorText: _specializationError,
+        ),
+        items: _specializations.map((String specialization) {
+          return DropdownMenuItem<String>(
+            value: specialization,
+            child: Text(specialization),
+          );
+        }).toList(),
+        onChanged: (String? newValue) {
+          setState(() {
+            _specializationController.text = newValue ?? '';
+            _validateSpecialization();
+          });
+        },
+        validator: (value) {
+          if (_userType == 'doctor' && (value == null || value.isEmpty)) {
+            return "Please select a specialization";
+          }
+          return null;
+        },
+      ),
+      const SizedBox(height: 15),
+      TextFormField(
+        controller: _licenseController,
+        decoration: InputDecoration(
+          labelText: "Medical License Number",
+          prefixIcon: const Icon(Icons.badge),
+          border: const OutlineInputBorder(),
+          errorText: _licenseError,
+          helperText: "Required for doctor verification",
+        ),
+        textInputAction: TextInputAction.next,
+        onChanged: (value) => _validateLicense(),
+        onEditingComplete: _validateLicense,
+      ),
+    ];
+  }
+
+  // 🎯 بناء زر التسجيل
+  Widget _buildSignUpButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _userType == 'doctor' ? Colors.green : Colors.blue,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
+        ),
+        onPressed: _loading ? null : _signUp,
+        child: _loading
+            ? const CircularProgressIndicator(color: Colors.white)
+            : Text(
+                _userType == 'doctor'
+                    ? "Register as Doctor"
+                    : "Sign Up as Patient",
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+      ),
+    );
+  }
+
+  // 🎯 بناء رابط الانتقال لتسجيل الدخول
+  Widget _buildLoginRedirect() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Text("Already have an account? "),
+        GestureDetector(
+          onTap: _navigateToLogin,
+          child: const Text(
+            "Login",
+            style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
     );
   }
 
@@ -639,6 +919,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _nameController.dispose();
     _dobController.dispose();
     _addressController.dispose();
+    _phoneController.dispose();
+    _specializationController.dispose();
+    _licenseController.dispose();
     super.dispose();
   }
 }

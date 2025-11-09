@@ -125,8 +125,11 @@ class ResultScreen extends StatelessWidget {
 
             const SizedBox(height: 40),
 
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            // التعديل هنا فقط: Row -> Wrap
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              alignment: WrapAlignment.center,
               children: [
                 ElevatedButton(
                   onPressed: () {

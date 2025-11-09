@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'result_screen.dart';
+import '../patient/result_screen.dart';
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});

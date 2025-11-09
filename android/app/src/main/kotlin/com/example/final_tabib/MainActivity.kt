@@ -1,4 +1,4 @@
-package com.example.final_tabib
+package com.flutter.Tabib
 
 import io.flutter.embedding.android.FlutterActivity
 
