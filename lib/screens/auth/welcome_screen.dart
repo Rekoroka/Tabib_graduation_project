@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:easy_localization/easy_localization.dart'; // مكتبة الترجمة
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -6,9 +7,39 @@ class WelcomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // إضافة AppBar شفاف لوضع زر تبديل اللغة فوق الخلفية
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: TextButton.icon(
+              onPressed: () {
+                // التبديل بين العربي والإنجليزي
+                if (context.locale == const Locale('en')) {
+                  context.setLocale(const Locale('ar'));
+                } else {
+                  context.setLocale(const Locale('en'));
+                }
+              },
+              icon: const Icon(Icons.language, color: Colors.white),
+              label: Text(
+                context.locale == const Locale('en') ? "العربية" : "English",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: Stack(
         children: [
-          // Background image
+          // Background image - الحفاظ على الخلفية الأصلية
           Container(
             decoration: const BoxDecoration(
               image: DecorationImage(
@@ -18,7 +49,7 @@ class WelcomeScreen extends StatelessWidget {
             ),
           ),
 
-          // Overlay
+          // Overlay - التعتيم
           Container(color: Colors.black.withOpacity(0.5)),
 
           // Content
@@ -29,7 +60,7 @@ class WelcomeScreen extends StatelessWidget {
               children: [
                 const Spacer(),
 
-                // App logo and title
+                // App logo and title - اللوجو الدائري المنسق
                 Container(
                   width: 120,
                   height: 120,
@@ -47,10 +78,9 @@ class WelcomeScreen extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(60),
                     child: Image.asset(
-                      "assets/images/tabib.jpg", // مسار الصورة الجديدة
-                      fit: BoxFit.cover, // تغطية كاملة للدائرة
+                      "assets/images/tabib.jpg",
+                      fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
-                        // إذا لم توجد الصورة، عرض بديل
                         return const Icon(
                           Icons.medical_services,
                           size: 60,
@@ -63,9 +93,10 @@ class WelcomeScreen extends StatelessWidget {
 
                 const SizedBox(height: 30),
 
-                const Text(
-                  "TABIB",
-                  style: TextStyle(
+                // اسم التطبيق - نص مترجم
+                Text(
+                  "app_name".tr(),
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -82,9 +113,10 @@ class WelcomeScreen extends StatelessWidget {
 
                 const SizedBox(height: 10),
 
-                const Text(
-                  "Detect plant diseases instantly with AI technology",
-                  style: TextStyle(
+                // وصف التطبيق - نص مترجم
+                Text(
+                  "welcome.subtitle".tr(),
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 16,
                     shadows: [
@@ -100,14 +132,14 @@ class WelcomeScreen extends StatelessWidget {
 
                 const Spacer(),
 
-                // Buttons
+                // Buttons - الأزرار بنصوص مترجمة
                 Column(
                   children: [
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () {
-                          Navigator.pushReplacementNamed(context, '/login');
+                          Navigator.pushNamed(context, '/login');
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green[700],
@@ -117,9 +149,9 @@ class WelcomeScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Text(
-                          "Sign In",
-                          style: TextStyle(
+                        child: Text(
+                          "welcome.login".tr(),
+                          style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -133,7 +165,7 @@ class WelcomeScreen extends StatelessWidget {
                       width: double.infinity,
                       child: OutlinedButton(
                         onPressed: () {
-                          Navigator.pushReplacementNamed(context, '/signup');
+                          Navigator.pushNamed(context, '/signup');
                         },
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
@@ -143,9 +175,9 @@ class WelcomeScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Text(
-                          "Create Account",
-                          style: TextStyle(fontSize: 18),
+                        child: Text(
+                          "welcome.signup".tr(),
+                          style: const TextStyle(fontSize: 18),
                         ),
                       ),
                     ),

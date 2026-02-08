@@ -1,5 +1,13 @@
-// lib/screens/doctor/doctor_chat_screen.dart
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart'; // مكتبة اختيار الملفات
+import 'package:record/record.dart'; // مكتبة تسجيل الصوت
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import '../../services/api_service.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 class DoctorChatScreen extends StatefulWidget {
   final String consultationId;
@@ -17,180 +25,196 @@ class DoctorChatScreen extends StatefulWidget {
 
 class _DoctorChatScreenState extends State<DoctorChatScreen> {
   final TextEditingController _messageController = TextEditingController();
-  final List<Map<String, dynamic>> _messages = [
-    {
-      'id': '1',
-      'text':
-          'Hello Doctor, I have been experiencing fever and headache for 2 days.',
-      'isDoctor': false,
-      'time': '10:00 AM',
-      'files': [],
-    },
-    {
-      'id': '2',
-      'text': 'Hello Ahmed. Can you describe your symptoms in more detail?',
+  final ApiService _apiService = ApiService();
+  final String? doctorId = FirebaseAuth.instance.currentUser?.uid;
+
+  // متغيرات الوسائط
+  bool _isUploading = false;
+  bool _isRecording = false;
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  String? _recordingPath;
+
+  // إرسال رسالة (هيكل موحد يدعم كل الأنواع)
+  void _sendMessage({
+    String? text,
+    String? imageUrl,
+    String? fileUrl,
+    String? fileName,
+    String? audioUrl,
+  }) async {
+    if ((text == null || text.trim().isEmpty) &&
+        imageUrl == null &&
+        fileUrl == null &&
+        audioUrl == null)
+      return;
+
+    final messageData = {
+      'senderId': doctorId,
+      'text': text ?? '',
+      'imageUrl': imageUrl, // رابط الصورة
+      'fileUrl': fileUrl, // رابط الملف (PDF/Doc)
+      'fileName': fileName, // اسم الملف للعرض
+      'audioUrl': audioUrl, // رابط الفويس نوت
       'isDoctor': true,
-      'time': '10:02 AM',
-      'files': [],
-    },
-    {
-      'id': '3',
-      'text': 'I have temperature around 38.5°C, body aches, and fatigue.',
-      'isDoctor': false,
-      'time': '10:05 AM',
-      'files': [],
-    },
-  ];
+      'createdAt': FieldValue.serverTimestamp(),
+    };
 
-  void _sendMessage() {
-    if (_messageController.text.trim().isEmpty) return;
-
-    setState(() {
-      _messages.add({
-        'id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'text': _messageController.text,
-        'isDoctor': true,
-        'time': _getCurrentTime(),
-        'files': [],
-      });
-    });
-
+    await _apiService.sendMessage(widget.consultationId, messageData);
     _messageController.clear();
   }
 
-  String _getCurrentTime() {
-    return '${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}';
-  }
+  // --- اختيار الوسائط ---
 
-  void _attachFile() {
-    // TODO: Implement file attachment
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('File attachment feature')));
-  }
-
-  void _viewAIDiagnosis() {
-    // TODO: View AI diagnosis
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Viewing AI Diagnosis')));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  void _showAttachmentSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            Text(widget.patientName),
-            const Text(
-              'Online',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+            _attachmentOption(
+              Icons.image,
+              "Gallery",
+              () => _pickImage(ImageSource.gallery),
             ),
+            _attachmentOption(
+              Icons.camera_alt,
+              "Camera",
+              () => _pickImage(ImageSource.camera),
+            ),
+            _attachmentOption(Icons.insert_drive_file, "File", _pickFile),
           ],
         ),
-        backgroundColor: Colors.green[700],
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.psychology),
-            onPressed: _viewAIDiagnosis,
-            tooltip: 'AI Diagnosis',
+      ),
+    );
+  }
+
+  Widget _attachmentOption(IconData icon, String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: () {
+        Navigator.pop(context);
+        onTap();
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: Colors.green[50],
+            child: Icon(icon, color: Colors.green[700]),
           ),
-          IconButton(
-            icon: const Icon(Icons.attachment),
-            onPressed: _attachFile,
-            tooltip: 'Attach File',
-          ),
+          const SizedBox(height: 5),
+          Text(label, style: const TextStyle(fontSize: 12)),
         ],
       ),
-      body: Column(
-        children: [
-          // AI Diagnosis Banner
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue[50],
-              border: Border(bottom: BorderSide(color: Colors.blue[100]!)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.psychology, size: 16, color: Colors.blue),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'AI Diagnosis: Possible Viral Infection',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
-                        ),
-                      ),
-                      Text(
-                        '85% confidence - Review recommended',
-                        style: TextStyle(fontSize: 12, color: Colors.blue),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.visibility, size: 16),
-                  onPressed: _viewAIDiagnosis,
-                ),
-              ],
-            ),
-          ),
+    );
+  }
 
-          // Messages List
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              reverse: false,
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                return _buildMessageBubble(message);
-              },
-            ),
-          ),
+  Future<void> _pickImage(ImageSource source) async {
+    final XFile? image = await ImagePicker().pickImage(source: source);
+    if (image != null) {
+      setState(() => _isUploading = true);
+      // هنا سيتم الرفع لـ Firebase Storage مستقبلاً
+      _sendMessage(imageUrl: image.path);
+      setState(() => _isUploading = false);
+    }
+  }
 
-          // Message Input
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border(top: BorderSide(color: Colors.grey[300]!)),
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.attach_file),
-                  onPressed: _attachFile,
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: const InputDecoration(
-                      hintText: 'Type a message...',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    maxLines: null,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                CircleAvatar(
-                  backgroundColor: Colors.green[700],
-                  child: IconButton(
-                    icon: const Icon(Icons.send, color: Colors.white),
-                    onPressed: _sendMessage,
-                  ),
-                ),
-              ],
+  Future<void> _pickFile() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles();
+    if (result != null) {
+      setState(() => _isUploading = true);
+      _sendMessage(
+        fileUrl: result.files.single.path,
+        fileName: result.files.single.name,
+      );
+      setState(() => _isUploading = false);
+    }
+  }
+
+  // --- تسجيل الصوت ---
+
+  Future<void> _handleVoiceNote() async {
+    if (_isRecording) {
+      final path = await _audioRecorder.stop();
+      setState(() {
+        _isRecording = false;
+        _recordingPath = path;
+      });
+      if (_recordingPath != null) {
+        _sendMessage(audioUrl: _recordingPath);
+      }
+    } else {
+      if (await _audioRecorder.hasPermission()) {
+        final directory = await getApplicationDocumentsDirectory();
+        final path =
+            '${directory.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _audioRecorder.start(const RecordConfig(), path: path);
+        setState(() => _isRecording = true);
+      }
+    }
+  }
+
+  // --- إنهاء الاستشارة وتحديث الإحصائيات ---
+
+  void _showCompleteConsultationDialog() {
+    final TextEditingController prescriptionController =
+        TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("chat.final_diagnosis".tr()),
+        content: TextField(
+          controller: prescriptionController,
+          maxLines: 5,
+          decoration: InputDecoration(
+            hintText: "chat.prescription_hint".tr(),
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("common.cancel".tr()),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
+            onPressed: () async {
+              if (prescriptionController.text.trim().isEmpty) return;
+
+              // 1. تحديث حالة الاستشارة
+              await FirebaseFirestore.instance
+                  .collection('consultations')
+                  .doc(widget.consultationId)
+                  .update({
+                    'status': 'completed',
+                    'finalPrescription': prescriptionController.text.trim(),
+                    'completedAt': FieldValue.serverTimestamp(),
+                  });
+
+              // 2. تحديث إحصائيات الطبيب (زيادة الحالات المكتملة)
+              if (doctorId != null) {
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(doctorId)
+                    .update({'completedCases': FieldValue.increment(1)});
+              }
+
+              if (mounted) {
+                Navigator.pop(context);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("chat.consultation_completed".tr())),
+                );
+              }
+            },
+            child: Text(
+              "chat.submit_finish".tr(),
+              style: const TextStyle(color: Colors.white),
             ),
           ),
         ],
@@ -198,74 +222,195 @@ class _DoctorChatScreenState extends State<DoctorChatScreen> {
     );
   }
 
-  Widget _buildMessageBubble(Map<String, dynamic> message) {
-    final isDoctor = message['isDoctor'] as bool;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        mainAxisAlignment: isDoctor
-            ? MainAxisAlignment.end
-            : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("${"chat.patient".tr()}: ${widget.patientName}"),
+        backgroundColor: Colors.green[700],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.check_circle_outline),
+            tooltip: "chat.complete_case".tr(),
+            onPressed: _showCompleteConsultationDialog,
+          ),
+        ],
+      ),
+      body: Column(
         children: [
-          if (!isDoctor) ...[
-            const CircleAvatar(
-              radius: 16,
-              backgroundColor: Colors.blue,
-              child: Icon(Icons.person, size: 16, color: Colors.white),
-            ),
-            const SizedBox(width: 8),
-          ],
-          Flexible(
-            child: Column(
-              crossAxisAlignment: isDoctor
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDoctor ? Colors.green[100] : Colors.grey[100],
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(12),
-                      topRight: const Radius.circular(12),
-                      bottomLeft: isDoctor
-                          ? const Radius.circular(12)
-                          : const Radius.circular(4),
-                      bottomRight: isDoctor
-                          ? const Radius.circular(4)
-                          : const Radius.circular(12),
-                    ),
-                  ),
-                  child: Text(
-                    message['text'],
-                    style: TextStyle(
-                      color: isDoctor ? Colors.green[900] : Colors.black87,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  message['time'],
-                  style: TextStyle(fontSize: 10, color: Colors.grey[500]),
-                ),
-              ],
+          _buildAIDiagnosisBanner(),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('consultations')
+                  .doc(widget.consultationId)
+                  .collection('messages')
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData)
+                  return const Center(child: CircularProgressIndicator());
+                return ListView.builder(
+                  reverse: true,
+                  padding: const EdgeInsets.all(15),
+                  itemCount: snapshot.data!.docs.length,
+                  itemBuilder: (context, index) {
+                    var msg =
+                        snapshot.data!.docs[index].data()
+                            as Map<String, dynamic>;
+                    return _buildMessageBubble(
+                      msg,
+                      msg['senderId'] == doctorId,
+                    );
+                  },
+                );
+              },
             ),
           ),
-          if (isDoctor) ...[
-            const SizedBox(width: 8),
-            const CircleAvatar(
-              radius: 16,
-              backgroundColor: Colors.green,
-              child: Icon(
-                Icons.medical_services,
-                size: 16,
-                color: Colors.white,
+          if (_isUploading) const LinearProgressIndicator(),
+          _buildInputArea(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAIDiagnosisBanner() {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('consultations')
+          .doc(widget.consultationId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data?.data() == null)
+          return const SizedBox.shrink();
+        var data = snapshot.data!.data() as Map<String, dynamic>;
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue[50],
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.blue[100]!),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "ai_diagnosis.title".tr(),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
+                ),
+              ),
+              Text(
+                "${"ai_diagnosis.result".tr()}: ${data['aiDiagnosis']} (${((data['confidence'] ?? 0) * 100).toStringAsFixed(0)}%)",
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildInputArea() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey[300]!)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.attach_file, color: Colors.green),
+            onPressed: _showAttachmentSheet,
+          ),
+          Expanded(
+            child: TextField(
+              controller: _messageController,
+              decoration: InputDecoration(
+                hintText: "chat.type_medical_advice".tr(),
+                border: InputBorder.none,
               ),
             ),
-          ],
+          ),
+          // زر الفويس نوت
+          GestureDetector(
+            onLongPress: _handleVoiceNote,
+            onLongPressUp: _handleVoiceNote,
+            child: IconButton(
+              icon: Icon(
+                _isRecording ? Icons.stop_circle : Icons.mic,
+                color: _isRecording ? Colors.red : Colors.green,
+              ),
+              onPressed: _handleVoiceNote,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.send, color: Colors.green),
+            onPressed: () => _sendMessage(text: _messageController.text),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(Map<String, dynamic> msg, bool isMe) {
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 5),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isMe ? Colors.green[100] : Colors.grey[200],
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Column(
+          crossAxisAlignment: isMe
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            if (msg['imageUrl'] != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.file(
+                    File(msg['imageUrl']),
+                    height: 150,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+            if (msg['fileUrl'] != null)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.description, color: Colors.blue),
+                  const SizedBox(width: 5),
+                  Text(
+                    msg['fileName'] ?? "File",
+                    style: const TextStyle(
+                      decoration: TextDecoration.underline,
+                      color: Colors.blue,
+                    ),
+                  ),
+                ],
+              ),
+            if (msg['audioUrl'] != null)
+              const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.play_circle_fill, color: Colors.green),
+                  SizedBox(width: 5),
+                  Text("Voice Note"),
+                ],
+              ),
+            if (msg['text'] != null && msg['text'].toString().isNotEmpty)
+              Text(msg['text'], style: const TextStyle(fontSize: 15)),
+          ],
+        ),
       ),
     );
   }

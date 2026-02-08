@@ -1,5 +1,7 @@
-// lib/screens/patient/ai_diagnosis_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:easy_localization/easy_localization.dart'; // مكتبة الترجمة
 
 class AIDiagnosisScreen extends StatefulWidget {
   const AIDiagnosisScreen({super.key});
@@ -10,192 +12,165 @@ class AIDiagnosisScreen extends StatefulWidget {
 
 class _AIDiagnosisScreenState extends State<AIDiagnosisScreen> {
   final TextEditingController _symptomsController = TextEditingController();
-  bool _analyzing = false;
+  File? _selectedImage;
+  bool _isAnalyzing = false;
+  final ImagePicker _picker = ImagePicker();
 
-  void _analyzeSymptoms() {
-    if (_symptomsController.text.trim().isEmpty) {
+  Future<void> _pickImage(ImageSource source) async {
+    final XFile? image = await _picker.pickImage(source: source);
+    if (image != null) {
+      setState(() => _selectedImage = File(image.path));
+    }
+  }
+
+  void _runAnalysis() async {
+    // التحقق من المدخلات باستخدام نصوص مترجمة
+    if (_symptomsController.text.trim().isEmpty || _selectedImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please describe your symptoms')),
+        SnackBar(
+          content: Text("ai_diagnosis.validation_error".tr()),
+          backgroundColor: Colors.redAccent,
+        ),
       );
       return;
     }
 
-    setState(() => _analyzing = true);
+    setState(() => _isAnalyzing = true);
 
-    // Simulate AI analysis
-    Future.delayed(const Duration(seconds: 3), () {
-      setState(() => _analyzing = false);
+    // محاكاة تأخير معالجة الذكاء الاصطناعي
+    await Future.delayed(const Duration(seconds: 3));
 
+    if (mounted) {
+      setState(() => _isAnalyzing = false);
       Navigator.pushNamed(
         context,
         '/result',
         arguments: {
-          'diseaseName': 'Contact Dermatitis',
-          'confidence': 0.85,
-          'imagePath': null,
+          'diseaseName':
+              'Dermatitis (Example)', // هذا سيأتي مستقبلاً من موديل الـ AI
+          'confidence': 0.89,
+          'imagePath': _selectedImage!.path,
         },
       );
-    });
-  }
-
-  void _uploadImage() {
-    // TODO: Implement image upload for skin conditions
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Image upload feature')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('AI Diagnosis'),
+        title: Text("ai_diagnosis.title".tr()),
         backgroundColor: Colors.purple[700],
+        elevation: 0,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
-            const Text(
-              'Describe Your Symptoms',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
+            // وصف الأعراض
             Text(
-              'Provide detailed information about your symptoms for accurate AI analysis',
-              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              "ai_diagnosis.describe_symptoms".tr(),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 30),
-
-            // Symptoms Input
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Symptoms Description',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _symptomsController,
-                      maxLines: 5,
-                      decoration: const InputDecoration(
-                        hintText:
-                            'Describe your symptoms in detail...\nExample: Red rash on arms, itchy, started 2 days ago...',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 15),
-                    const Text(
-                      'Tips for better diagnosis:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 5),
-                    const Text('• Describe when symptoms started'),
-                    const Text('• Mention affected body parts'),
-                    const Text('• Note any pain or discomfort level'),
-                    const Text('• Include any other relevant information'),
-                  ],
+            const SizedBox(height: 10),
+            TextField(
+              controller: _symptomsController,
+              maxLines: 4,
+              textAlign: context.locale == const Locale('ar')
+                  ? TextAlign.right
+                  : TextAlign.left,
+              decoration: InputDecoration(
+                hintText: "ai_diagnosis.symptoms_hint".tr(),
+                hintStyle: TextStyle(color: Colors.grey[400]),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 25),
 
-            // Image Upload Section
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Upload Images (Optional)',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'For skin conditions, upload clear photos of affected areas',
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                    const SizedBox(height: 15),
-                    ElevatedButton.icon(
-                      onPressed: _uploadImage,
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Take or Upload Photo'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.purple[700],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            // رفع الصورة
+            Text(
+              "ai_diagnosis.upload_photo".tr(),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 30),
-
-            // Analyze Button
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: _analyzing
-                  ? const ElevatedButton(
-                      onPressed: null,
-                      child: Row(
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () => _pickImage(ImageSource.camera),
+              child: Container(
+                height: 250,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(
+                    color: Colors.purple.withOpacity(0.3),
+                    width: 2,
+                  ),
+                ),
+                child: _selectedImage == null
+                    ? Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          CircularProgressIndicator(color: Colors.white),
-                          SizedBox(width: 10),
-                          Text('Analyzing Symptoms...'),
+                          Icon(
+                            Icons.add_a_photo,
+                            size: 60,
+                            color: Colors.purple[300],
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            "ai_diagnosis.capture_hint".tr(),
+                            style: const TextStyle(color: Colors.grey),
+                          ),
                         ],
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(13),
+                        child: Image.file(_selectedImage!, fit: BoxFit.cover),
                       ),
-                    )
-                  : ElevatedButton(
-                      onPressed: _analyzeSymptoms,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.purple[700],
+              ),
+            ),
+            const SizedBox(height: 40),
+
+            // زر بدء التحليل
+            SizedBox(
+              width: double.infinity,
+              height: 55,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.purple[700],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: _isAnalyzing ? null : _runAnalysis,
+                child: _isAnalyzing
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : Text(
+                        "ai_diagnosis.start_analysis".tr(),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
-                      child: const Text(
-                        'Analyze with AI',
-                        style: TextStyle(fontSize: 18),
-                      ),
-                    ),
+              ),
             ),
             const SizedBox(height: 20),
 
-            // Disclaimer
-            Card(
-              color: Colors.orange[50],
-              child: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text(
-                  '⚠️ Disclaimer: AI diagnosis is for informational purposes only. '
-                  'Always consult with a healthcare professional for accurate medical diagnosis and treatment.',
-                  style: TextStyle(fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
+            // ملاحظة إخلاء المسؤولية
+            Center(
+              child: Text(
+                "ai_diagnosis.disclaimer".tr(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
               ),
             ),
           ],
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _symptomsController.dispose();
-    super.dispose();
   }
 }

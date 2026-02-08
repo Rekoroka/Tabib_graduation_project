@@ -1,95 +1,141 @@
-// lib/screens/doctor/doctor_dashboard_screen.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/api_service.dart';
+import 'package:easy_localization/easy_localization.dart';
+import 'available_requests_screen.dart';
 
-class DoctorDashboardScreen extends StatefulWidget {
-  const DoctorDashboardScreen({super.key});
+class DoctorDashboardScreen extends StatelessWidget {
+  final ApiService _apiService = ApiService();
 
-  @override
-  State<DoctorDashboardScreen> createState() => _DoctorDashboardScreenState();
-}
-
-class _DoctorDashboardScreenState extends State<DoctorDashboardScreen> {
-  final User? user = FirebaseAuth.instance.currentUser;
-  int _currentIndex = 0;
+  DoctorDashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final String uid = FirebaseAuth.instance.currentUser?.uid ?? "";
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Doctor Dashboard'),
+        title: Text("doctor_dashboard.title".tr()),
         backgroundColor: Colors.green[700],
-        elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_none),
-            onPressed: _showNotifications,
-          ),
-          IconButton(
             icon: const Icon(Icons.person_outline),
-            onPressed: _navigateToProfile,
+            onPressed: () => Navigator.pushNamed(context, '/profile'),
           ),
         ],
       ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(user!.uid)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildWelcomeHeader(),
+            const SizedBox(height: 25),
 
-          final userData = snapshot.data!.data() as Map<String, dynamic>;
-          final bool isVerified = userData['isVerified'] ?? false;
-
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            Text(
+              "doctor_dashboard.performance".tr(),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 15),
+            Row(
               children: [
-                // Welcome Card
-                _buildWelcomeCard(userData, isVerified),
-                const SizedBox(height: 20),
-
-                // Quick Stats
-                _buildStatsSection(),
-                const SizedBox(height: 20),
-
-                // Pending Consultations
-                _buildPendingConsultations(),
-                const SizedBox(height: 20),
-
-                // Quick Actions
-                _buildQuickActions(),
+                // كرت الطلبات الجديدة - يذهب لصفحة المزايدة
+                _buildStatCard(
+                  context,
+                  "doctor_dashboard.new_requests".tr(),
+                  "pending",
+                  Colors.orange,
+                  Icons.notification_important,
+                  onTap: () =>
+                      Navigator.pushNamed(context, '/available-requests'),
+                ),
+                const SizedBox(width: 15),
+                // كرت الحالات النشطة - يذهب لصفحة إدارة الحالات (الشات)
+                _buildStatCard(
+                  context,
+                  "doctor_dashboard.active_cases".tr(),
+                  "active",
+                  Colors.green,
+                  Icons.chat_bubble,
+                  doctorId: uid,
+                  onTap: () =>
+                      Navigator.pushNamed(context, '/doctor-consultations'),
+                ),
               ],
             ),
-          );
-        },
+            const SizedBox(height: 25),
+
+            Text(
+              "doctor_dashboard.quick_management".tr(),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 15),
+
+            _buildMenuButton(
+              context,
+              "doctor_dashboard.manage_consultations".tr(),
+              "doctor_dashboard.view_accept_sub".tr(),
+              Icons.assignment_ind,
+              Colors.blue,
+              '/doctor-consultations',
+            ),
+
+            _buildMenuButton(
+              context,
+              "profile.title".tr(),
+              "doctor_dashboard.profile_sub".tr(),
+              Icons.account_circle,
+              Colors.teal,
+              '/profile',
+            ),
+
+            const SizedBox(height: 25),
+
+            // --- التعديل هنا: تشغيل زر View All ليفتح صفحة إدارة الاستشارات ---
+            _buildSectionTitle(
+              "doctor_dashboard.history".tr(),
+              () => Navigator.pushNamed(context, '/doctor-consultations'),
+            ),
+            const SizedBox(height: 15),
+            _buildRealHistoryConsultations(uid),
+
+            const SizedBox(height: 25),
+
+            _buildMenuButton(
+              context,
+              "patient_dashboard.support".tr(),
+              "doctor_dashboard.about_sub".tr(),
+              Icons.info_outline,
+              Colors.purple,
+              '/about',
+            ),
+          ],
+        ),
       ),
-      bottomNavigationBar: _buildBottomNavigationBar(),
     );
   }
 
-  Widget _buildWelcomeCard(Map<String, dynamic> userData, bool isVerified) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
+  Widget _buildWelcomeHeader() {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _apiService.getUserData(),
+      builder: (context, snapshot) {
+        String name = snapshot.hasData
+            ? snapshot.data!['name']
+            : "doctor_dashboard.doctor".tr();
+        return Row(
           children: [
-            CircleAvatar(
-              radius: 30,
-              backgroundColor: Colors.green[100],
-              child: Icon(
-                Icons.medical_services,
-                size: 30,
-                color: Colors.green[700],
+            Material(
+              elevation: 3,
+              shape: const CircleBorder(),
+              shadowColor: Colors.black45,
+              child: CircleAvatar(
+                radius: 35,
+                backgroundColor: Colors.white,
+                backgroundImage: NetworkImage(
+                  "https://ui-avatars.com/api/?name=$name&background=2E7D32&color=fff",
+                ),
               ),
             ),
             const SizedBox(width: 15),
@@ -98,361 +144,190 @@ class _DoctorDashboardScreenState extends State<DoctorDashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Dr. ${userData['name']}',
+                    "doctor_dashboard.welcome_back".tr(),
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                  Text(
+                    "${"doctor_dashboard.dr".tr()} $name",
                     style: const TextStyle(
-                      fontSize: 20,
+                      fontSize: 22,
                       fontWeight: FontWeight.bold,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 5),
-                  Text(
-                    userData['specialization'] ?? 'General Practitioner',
-                    style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 10),
-                  if (!isVerified)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.orange[50],
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.orange),
-                      ),
-                      child: const Text(
-                        '⏳ Pending Verification',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.orange,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.green[50],
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.green),
-                      ),
-                      child: const Text(
-                        '✅ Verified Doctor',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.green,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "Today's Overview",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 15),
-        Row(
-          children: [
-            Expanded(child: _buildStatCard('Pending', '5', Colors.orange)),
-            const SizedBox(width: 10),
-            Expanded(child: _buildStatCard('Completed', '12', Colors.green)),
-            const SizedBox(width: 10),
-            Expanded(child: _buildStatCard('Total', '17', Colors.blue)),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(String title, String value, Color color) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              title,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPendingConsultations() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Pending Consultations',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              'View All',
-              style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        const SizedBox(height: 15),
-        Card(
-          elevation: 1,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _buildConsultationItem(
-                  'Ahmed Mohamed',
-                  'Fever & Headache',
-                  '09:30 AM',
-                ),
-                const Divider(),
-                _buildConsultationItem('Sarah Ali', 'Skin Rash', '10:15 AM'),
-                const Divider(),
-                _buildConsultationItem(
-                  'Mohamed Hassan',
-                  'Back Pain',
-                  '11:00 AM',
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildConsultationItem(
-    String patientName,
-    String symptoms,
-    String time,
-  ) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(
-        backgroundColor: Colors.blue[100],
-        child: const Icon(Icons.person, color: Colors.blue),
-      ),
-      title: Text(
-        patientName,
-        style: const TextStyle(fontWeight: FontWeight.bold),
-      ),
-      subtitle: Text(symptoms),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            time,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: Colors.green,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.orange[50],
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Text(
-              'Pending',
-              style: TextStyle(fontSize: 10, color: Colors.orange),
-            ),
-          ),
-        ],
-      ),
-      onTap: () {
-        _viewConsultationDetails(patientName);
+        );
       },
     );
   }
 
-  Widget _buildQuickActions() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Quick Actions',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 15),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          childAspectRatio: 1.5,
-          crossAxisSpacing: 15,
-          mainAxisSpacing: 15,
-          children: [
-            _buildActionCard(
-              'My Consultations',
-              Icons.medical_services,
-              Colors.blue,
-              _navigateToConsultations,
-            ),
-            _buildActionCard(
-              'Chat with Patients',
-              Icons.chat_bubble_outline,
-              Colors.green,
-              _navigateToChat,
-            ),
-            _buildActionCard(
-              'AI Diagnosis Review',
-              Icons.psychology_outlined,
-              Colors.purple,
-              _navigateToAIDiagnosis,
-            ),
-            _buildActionCard(
-              'My Schedule',
-              Icons.calendar_today,
-              Colors.orange,
-              _navigateToSchedule,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionCard(
-    String title,
-    IconData icon,
+  Widget _buildStatCard(
+    BuildContext context,
+    String label,
+    String status,
     Color color,
-    VoidCallback onTap,
-  ) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    IconData icon, {
+    String? doctorId,
+    VoidCallback? onTap,
+  }) {
+    return Expanded(
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 32, color: color),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
+        borderRadius: BorderRadius.circular(20),
+        child: StreamBuilder<QuerySnapshot>(
+          stream: _apiService.getConsultationsCountByStatus(
+            status,
+            doctorId: doctorId,
           ),
+          builder: (context, snapshot) {
+            int count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+            return Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Icon(icon, color: color, size: 30),
+                  const SizedBox(height: 10),
+                  Text(
+                    count.toString(),
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
   }
 
-  BottomNavigationBar _buildBottomNavigationBar() {
-    return BottomNavigationBar(
-      currentIndex: _currentIndex,
-      onTap: (index) => setState(() => _currentIndex = index),
-      type: BottomNavigationBarType.fixed,
-      selectedItemColor: Colors.green[700],
-      unselectedItemColor: Colors.grey,
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.dashboard),
-          label: 'Dashboard',
+  Widget _buildRealHistoryConsultations(String doctorId) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('consultations')
+          .where('doctorId', isEqualTo: doctorId)
+          .where('status', isEqualTo: 'completed')
+          .limit(3)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const LinearProgressIndicator();
+        }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Text(
+                "doctor_dashboard.no_history".tr(),
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+          );
+        }
+
+        return Column(
+          children: snapshot.data!.docs.map((doc) {
+            var data = doc.data() as Map<String, dynamic>;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFE8F5E9),
+                  child: Icon(Icons.history, color: Colors.green),
+                ),
+                title: Text(
+                  data['patientName'] ?? "auth.patient".tr(),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  "${"ai_diagnosis.result".tr()}: ${data['aiDiagnosis']}",
+                ),
+                trailing: const Icon(
+                  Icons.verified,
+                  color: Colors.green,
+                  size: 20,
+                ),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildSectionTitle(String title, VoidCallback onSeeAll) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.medical_services),
-          label: 'Consultations',
+        TextButton(
+          onPressed: onSeeAll,
+          child: Text("patient_dashboard.view_all".tr()),
         ),
-        BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Messages'),
-        BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
       ],
     );
   }
 
-  // Navigation Methods
-  void _navigateToConsultations() {
-    // TODO: Navigate to consultations list
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Navigating to Consultations')),
-    );
-  }
-
-  void _navigateToChat() {
-    // TODO: Navigate to chat list
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Navigating to Chat')));
-  }
-
-  void _navigateToAIDiagnosis() {
-    // TODO: Navigate to AI diagnosis review
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Navigating to AI Diagnosis Review')),
-    );
-  }
-
-  void _navigateToSchedule() {
-    // TODO: Navigate to schedule
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Navigating to Schedule')));
-  }
-
-  void _navigateToProfile() {
-    // TODO: Navigate to doctor profile
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Navigating to Profile')));
-  }
-
-  void _showNotifications() {
-    // TODO: Show notifications
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Showing Notifications')));
-  }
-
-  void _viewConsultationDetails(String patientName) {
-    // TODO: View consultation details
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Viewing consultation with $patientName')),
+  Widget _buildMenuButton(
+    BuildContext context,
+    String title,
+    String sub,
+    IconData icon,
+    Color color,
+    String route,
+  ) {
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 15),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15),
+        side: BorderSide(color: Colors.grey[200]!),
+      ),
+      child: ListTile(
+        onTap: () => Navigator.pushNamed(context, route),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: color),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(sub, style: const TextStyle(fontSize: 12)),
+        trailing: const Icon(
+          Icons.arrow_forward_ios,
+          size: 14,
+          color: Colors.grey,
+        ),
+      ),
     );
   }
 }

@@ -1,435 +1,423 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:easy_localization/easy_localization.dart'; // مكتبة الترجمة
+import 'dart:io';
 
-class ProfileScreen extends StatefulWidget {
+class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
-  @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
-}
-
-class _ProfileScreenState extends State<ProfileScreen> {
-  final User? user = FirebaseAuth.instance.currentUser;
-  bool _resettingPassword = false;
-
-  Future<void> _resetPassword() async {
-    if (user?.email == null) {
-      _showSnackBar("No email address found for this account", isError: true);
-      return;
-    }
-
-    setState(() => _resettingPassword = true);
-
+  // دالة تسجيل الخروج مع مسح التوكن لضمان الأمان
+  Future<void> _logout(BuildContext context) async {
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: user!.email!);
+      String uid = FirebaseAuth.instance.currentUser!.uid;
 
-      if (mounted) {
-        _showSnackBar(
-          "Password reset email sent successfully!",
-          isError: false,
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      String errorMessage = "Failed to send reset email";
+      // مسح توكن الإشعارات عند تسجيل الخروج
+      await FirebaseFirestore.instance.collection('users').doc(uid).update({
+        'fcmToken': FieldValue.delete(),
+      });
 
-      if (e.code == 'user-not-found') {
-        errorMessage = "No user found with this email address";
-      } else if (e.code == 'invalid-email') {
-        errorMessage = "Invalid email address";
-      } else if (e.code == 'too-many-requests') {
-        errorMessage = "Too many attempts. Please try again later";
-      }
-
-      if (mounted) {
-        _showSnackBar("❌ $errorMessage", isError: true);
-      }
-    } catch (e) {
-      if (mounted) {
-        _showSnackBar("An error occurred: $e", isError: true);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _resettingPassword = false);
-      }
-    }
-  }
-
-  void _showSnackBar(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 8),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: isError ? Colors.red : Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
-  void _showResetPasswordDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Row(
-            children: [
-              Icon(Icons.lock_reset, color: Colors.blue),
-              SizedBox(width: 8),
-              Text("Reset Password"),
-            ],
-          ),
-          content: const Text(
-            "A password reset link will be sent to your email address. "
-            "Do you want to continue?",
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _resetPassword();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text("Send Reset Link"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _navigateToHome() {
-    Navigator.pushReplacementNamed(context, '/home');
-  }
-
-  void _logout() async {
-    try {
       await FirebaseAuth.instance.signOut();
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/login');
+
+      if (context.mounted) {
+        // العودة لشاشة البداية وتصفير سجل التنقل
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
       }
     } catch (e) {
-      _showSnackBar("Logout failed: $e", isError: true);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("${"common.error".tr()}: $e")));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // التأكد من وجود مستخدم مسجل دخول
+    final User? user = FirebaseAuth.instance.currentUser;
+    if (user == null)
+      return const Scaffold(body: Center(child: Text("No User Logged In")));
+
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text(
-          'Profile',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: _navigateToHome,
-        ),
+        title: Text("profile.title".tr()),
         centerTitle: true,
-        elevation: 0,
         backgroundColor: Colors.transparent,
-        foregroundColor: Theme.of(context).colorScheme.onBackground,
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xFF2E7D32),
+                Color(0xFF4CAF50),
+              ], // درجات الأخضر الطبي
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const SizedBox(height: 20),
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return Center(child: Text("profile.no_data".tr()));
+          }
 
-            // Profile Avatar with gradient
-            Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Colors.blue.shade600, Colors.green.shade600],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blue.withOpacity(0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: CircleAvatar(
-                radius: 60,
-                backgroundColor: Colors.transparent,
-                child: Icon(
-                  Icons.person,
-                  size: 60,
-                  color: Colors.white.withOpacity(0.9),
-                ),
-              ),
-            ),
+          var userData = snapshot.data!.data() as Map<String, dynamic>;
+          final bool isDoctor = userData['userType'] == 'doctor';
 
-            const SizedBox(height: 24),
+          // تحديد لون السمة بناءً على نوع المستخدم (طبيب أخضر، مريض أزرق)
+          final Color themeColor = isDoctor
+              ? Colors.green[700]!
+              : Colors.blue[700]!;
 
-            // User Name
-            Text(
-              user?.displayName ?? 'User',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.onBackground,
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // User Email
-            Text(
-              user?.email ?? 'No email',
-              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-            ),
-
-            const SizedBox(height: 32),
-
-            // Account Information Card
-            _buildSectionCard(
-              icon: Icons.info_outline_rounded,
-              iconColor: Colors.blue,
-              title: "Account Information",
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
               children: [
-                _buildInfoItem(
-                  Icons.person_outline_rounded,
-                  'Name',
-                  user?.displayName ?? 'Not set',
-                ),
-                const Divider(height: 20),
-                _buildInfoItem(
-                  Icons.email_outlined,
-                  'Email',
-                  user?.email ?? 'Not set',
-                ),
-                const Divider(height: 20),
-                _buildInfoItem(
-                  Icons.calendar_today_outlined,
-                  'Member since',
-                  user?.metadata.creationTime != null
-                      ? DateFormat(
-                          'MMM dd, yyyy',
-                        ).format(user!.metadata.creationTime!)
-                      : 'Unknown',
-                ),
-                const Divider(height: 20),
-                _buildInfoItem(
-                  Icons.verified_user_outlined,
-                  'Email Verified',
-                  user?.emailVerified == true ? 'Verified' : 'Not Verified',
-                  valueColor: user?.emailVerified == true
-                      ? Colors.green
-                      : Colors.orange,
+                // --- قسم الهيدر (الصورة والاسم) ---
+                _buildHeader(context, userData, themeColor),
+
+                const SizedBox(height: 20),
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // --- قسم إعدادات اللغة ---
+                      _buildSectionTitle("profile.language_settings".tr()),
+                      _buildLanguageTile(context),
+
+                      const SizedBox(height: 20),
+
+                      // --- قسم معلومات الحساب الأساسية ---
+                      _buildSectionTitle("profile.account_info".tr()),
+                      _buildProfileTile(
+                        context,
+                        Icons.person_outline,
+                        "auth.full_name".tr(),
+                        userData['name'] ?? "N/A",
+                        userData,
+                        themeColor,
+                      ),
+                      _buildProfileTile(
+                        context,
+                        Icons.email_outlined,
+                        "auth.email".tr(),
+                        userData['email'] ?? "N/A",
+                        userData,
+                        themeColor,
+                      ),
+                      _buildProfileTile(
+                        context,
+                        Icons.phone_android,
+                        "auth.phone".tr(),
+                        userData['phone'] ?? "profile.add_phone".tr(),
+                        userData,
+                        themeColor,
+                      ),
+                      _buildProfileTile(
+                        context,
+                        Icons.location_on_outlined,
+                        "auth.address".tr(),
+                        userData['address'] ?? "profile.add_address".tr(),
+                        userData,
+                        themeColor,
+                      ),
+
+                      // --- قسم معلومات الطبيب (يظهر فقط للدكاترة) ---
+                      if (isDoctor) ...[
+                        const SizedBox(height: 20),
+                        _buildSectionTitle("profile.pro_info".tr()),
+                        _buildProfileTile(
+                          context,
+                          Icons.medical_services_outlined,
+                          "auth.specialization".tr(),
+                          userData['specialization'] ?? "N/A",
+                          userData,
+                          themeColor,
+                        ),
+                        _buildProfileTile(
+                          context,
+                          Icons.verified_user_outlined,
+                          "auth.license_number".tr(),
+                          userData['licenseNumber'] ?? "N/A",
+                          userData,
+                          themeColor,
+                        ),
+                      ],
+
+                      const SizedBox(height: 20),
+
+                      // --- قسم الدعم والمساعدة ---
+                      _buildSectionTitle("profile.app_support".tr()),
+                      _buildSupportTile(
+                        context,
+                        Icons.info_outline,
+                        "common.about".tr(),
+                        themeColor,
+                        () => Navigator.pushNamed(context, '/about'),
+                      ),
+
+                      const SizedBox(height: 40),
+
+                      // --- زر تسجيل الخروج ---
+                      _buildLogoutButton(context),
+                      const SizedBox(height: 30),
+                    ],
+                  ),
                 ),
               ],
             ),
+          );
+        },
+      ),
+    );
+  }
 
-            const SizedBox(height: 24),
-
-            // Security Section
-            _buildSectionCard(
-              icon: Icons.security_rounded,
-              iconColor: Colors.orange,
-              title: "Security",
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _resettingPassword
-                        ? null
-                        : _showResetPasswordDialog,
-                    icon: _resettingPassword
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white.withOpacity(0.8),
-                            ),
-                          )
-                        : const Icon(Icons.lock_reset_rounded),
-                    label: Text(
-                      _resettingPassword ? "Sending..." : "Reset Password",
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue.shade600,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 14,
-                        horizontal: 16,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 2,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  "You will receive a password reset link in your email",
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 32),
-
-            // Logout Button
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: LinearGradient(
-                  colors: [Colors.red.shade600, Colors.orange.shade600],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.red.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: ElevatedButton.icon(
-                onPressed: _logout,
-                icon: const Icon(Icons.logout_rounded),
-                label: const Text(
-                  'Sign Out',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  foregroundColor: Colors.white,
-                  shadowColor: Colors.transparent,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-          ],
+  // ويدجت عنوان القسم
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10, left: 5, right: 5),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Colors.blueGrey,
         ),
       ),
     );
   }
 
-  Widget _buildSectionCard({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            // Section Header
-            Row(
-              children: [
-                Container(
+  // بناء الهيدر مع دائرة الصورة الشخصية
+  Widget _buildHeader(
+    BuildContext context,
+    Map<String, dynamic> data,
+    Color color,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 30),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(35),
+          bottomRight: Radius.circular(35),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Stack(
+            alignment: Alignment.bottomRight,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 4),
+                ),
+                child: CircleAvatar(
+                  radius: 55,
+                  backgroundColor: Colors.white,
+                  // عرض الصورة من الرابط إذا وجد، وإلا توليد صورة رمزية بالاسم
+                  backgroundImage:
+                      (data['profileImage'] != null &&
+                          data['profileImage'] != "")
+                      ? NetworkImage(data['profileImage'])
+                      : NetworkImage(
+                              "https://ui-avatars.com/api/?name=${data['name']}&background=random&color=fff",
+                            )
+                            as ImageProvider,
+                ),
+              ),
+              // زر الكاميرا للانتقال لشاشة التعديل واختيار صورة
+              InkWell(
+                onTap: () => Navigator.pushNamed(
+                  context,
+                  '/edit-profile',
+                  arguments: data,
+                ),
+                child: Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: iconColor.withOpacity(0.1),
+                  decoration: const BoxDecoration(
+                    color: Colors.orange,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(icon, color: iconColor, size: 22),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                  child: const Icon(
+                    Icons.camera_alt,
+                    color: Colors.white,
+                    size: 20,
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoItem(
-    IconData icon,
-    String label,
-    String value, {
-    Color? valueColor,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 18, color: Colors.grey.shade600),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color:
-                        valueColor ??
-                        Theme.of(context).colorScheme.onBackground,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 15),
+          Text(
+            data['name'] ?? "User",
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              data['userType']?.toString().toUpperCase() ?? "PATIENT",
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.1,
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // بلاطة تبديل اللغة
+  Widget _buildLanguageTile(BuildContext context) {
+    bool isArabic = context.locale == const Locale('ar');
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10),
+        ],
+      ),
+      child: ListTile(
+        leading: const Icon(Icons.language, color: Colors.orange),
+        title: Text(
+          "profile.current_language".tr(),
+          style: const TextStyle(fontWeight: FontWeight.w500),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              isArabic ? "العربية" : "English",
+              style: const TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(width: 5),
+            const Icon(Icons.swap_horiz, size: 18, color: Colors.grey),
+          ],
+        ),
+        onTap: () {
+          // التبديل بين اللغتين
+          if (isArabic) {
+            context.setLocale(const Locale('en'));
+          } else {
+            context.setLocale(const Locale('ar'));
+          }
+        },
+      ),
+    );
+  }
+
+  // بلاطة عرض المعلومات (الاسم، الهاتف، الخ)
+  Widget _buildProfileTile(
+    BuildContext context,
+    IconData icon,
+    String title,
+    String value,
+    Map<String, dynamic> userData,
+    Color color,
+  ) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10),
+        ],
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: color),
+        title: Text(
+          title,
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        subtitle: Text(
+          value,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+        trailing: Icon(Icons.arrow_forward_ios, size: 14),
+        onTap: () =>
+            Navigator.pushNamed(context, '/edit-profile', arguments: userData),
+      ),
+    );
+  }
+
+  // بلاطة خيارات الدعم
+  Widget _buildSupportTile(
+    BuildContext context,
+    IconData icon,
+    String title,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(icon, color: color),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
+        trailing: Icon(Icons.arrow_forward_ios, size: 14),
+      ),
+    );
+  }
+
+  // زر تسجيل الخروج الأحمر
+  Widget _buildLogoutButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () => _logout(context),
+        icon: const Icon(Icons.logout),
+        label: Text(
+          "profile.logout".tr(),
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.red[700],
+          side: BorderSide(color: Colors.red[700]!, width: 1.5),
+          padding: const EdgeInsets.symmetric(vertical: 15),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+        ),
       ),
     );
   }

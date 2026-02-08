@@ -1,8 +1,9 @@
-// lib/screens/patient/patient_dashboard_screen.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/api_service.dart';
+import 'package:easy_localization/easy_localization.dart'; // مكتبة الترجمة
+import '../doctor/offers_list_screen.dart'; // استيراد شاشة العروض
 
 class PatientDashboardScreen extends StatefulWidget {
   const PatientDashboardScreen({super.key});
@@ -12,11 +13,11 @@ class PatientDashboardScreen extends StatefulWidget {
 }
 
 class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
+  final ApiService _apiService = ApiService();
   final User? user = FirebaseAuth.instance.currentUser;
-  int _currentIndex = 0;
+
   bool _isLoading = true;
   Map<String, dynamic>? _userData;
-  String? _error;
 
   @override
   void initState() {
@@ -26,38 +27,63 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
 
   Future<void> _loadUserData() async {
     try {
-      if (user == null) {
+      final userData = await _apiService.getUserData();
+      if (mounted && userData != null) {
         setState(() {
-          _error = 'No user logged in';
+          _userData = userData;
           _isLoading = false;
         });
-        return;
-      }
-
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .get();
-
-      if (mounted) {
-        if (doc.exists) {
-          setState(() {
-            _userData = doc.data()!;
-            _isLoading = false;
-          });
-        } else {
-          setState(() {
-            _error = 'User data not found';
-            _isLoading = false;
-          });
-        }
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = 'Error loading data: $e';
-          _isLoading = false;
-        });
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // دالة إلغاء الطلب من الداشبورد
+  Future<void> _cancelConsultation(BuildContext context, String docId) async {
+    bool confirm =
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text("common.confirm".tr()),
+            content: const Text(
+              "Are you sure you want to cancel this request?",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text("common.cancel".tr()),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(
+                  "common.confirm".tr(),
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (confirm) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('consultations')
+            .doc(docId)
+            .update({'status': 'cancelled'});
+
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text("Request cancelled")));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Error: $e")));
+        }
       }
     }
   }
@@ -65,441 +91,339 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Patient Dashboard'),
+        title: Text('app_name'.tr()), // اسم التطبيق مترجم
         backgroundColor: Colors.blue[700],
-        elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications_none),
-            onPressed: _showNotifications,
+            onPressed: () {},
           ),
           IconButton(
             icon: const Icon(Icons.person_outline),
-            onPressed: _navigateToProfile,
+            onPressed: () => Navigator.pushNamed(context, '/profile'),
           ),
         ],
       ),
-      body: _buildBody(),
-      bottomNavigationBar: _buildBottomNavigationBar(),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildWelcomeHeader(),
+                  const SizedBox(height: 25),
+                  _buildQuickActionsGrid(),
+                  const SizedBox(height: 30),
+                  _buildSectionTitle(
+                    "patient_dashboard.recent".tr(),
+                    () =>
+                        Navigator.pushNamed(context, '/patient-consultations'),
+                  ),
+                  const SizedBox(height: 15),
+                  _buildRealRecentConsultations(),
+                  const SizedBox(height: 30),
+                  _buildHealthTipsSection(),
+                ],
+              ),
+            ),
     );
   }
 
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Loading your dashboard...'),
-          ],
+  Widget _buildWelcomeHeader() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.blue[700]!, Colors.blue[400]!],
         ),
-      );
-    }
-
-    if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.red),
-            const SizedBox(height: 16),
-            Text(
-              _error!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, color: Colors.red),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _loadUserData,
-              child: const Text('Try Again'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
         children: [
-          // Welcome Card
-          _buildWelcomeCard(),
-          const SizedBox(height: 20),
-
-          // Quick Actions
-          _buildQuickActions(),
-          const SizedBox(height: 20),
-
-          // Recent Consultations
-          _buildRecentConsultations(),
-          const SizedBox(height: 20),
-
-          // Health Tips
-          _buildHealthTips(),
+          CircleAvatar(
+            radius: 30,
+            backgroundColor: Colors.white24,
+            backgroundImage: NetworkImage(
+              "https://ui-avatars.com/api/?name=${_userData?['name'] ?? 'User'}&background=fff&color=0D47A1",
+            ),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${"patient_dashboard.hello".tr()} ${_userData?['name'] ?? 'patient_dashboard.patient'.tr()}!',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  "patient_dashboard.subtitle".tr(),
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildWelcomeCard() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 30,
-              backgroundColor: Colors.blue[100],
-              child: Icon(Icons.person, size: 30, color: Colors.blue[700]),
-            ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Welcome, ${_userData?['name'] ?? 'Patient'}!',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    'How are you feeling today?',
-                    style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.green[50],
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.green),
-                    ),
-                    child: const Text(
-                      '✅ Active Patient',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.green,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuickActions() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildQuickActionsGrid() {
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 2,
+      childAspectRatio: 1.4,
+      crossAxisSpacing: 15,
+      mainAxisSpacing: 15,
       children: [
-        const Text(
-          "Quick Actions",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        _actionCard(
+          'patient_dashboard.ai_diagnosis'.tr(),
+          Icons.psychology,
+          Colors.purple,
+          () => Navigator.pushNamed(context, '/ai-diagnosis'),
         ),
-        const SizedBox(height: 15),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          childAspectRatio: 1.5,
-          crossAxisSpacing: 15,
-          mainAxisSpacing: 15,
-          children: [
-            _buildActionCard(
-              'AI Diagnosis',
-              Icons.psychology_outlined,
-              Colors.purple,
-              _navigateToAIDiagnosis,
-            ),
-            _buildActionCard(
-              'My Consultations',
-              Icons.medical_services,
-              Colors.blue,
-              _navigateToConsultations,
-            ),
-            _buildActionCard(
-              'Chat with Doctors',
-              Icons.chat_bubble_outline,
-              Colors.green,
-              _navigateToChat,
-            ),
-            _buildActionCard(
-              'Upload Documents',
-              Icons.upload_file,
-              Colors.orange,
-              _navigateToFileUpload,
-            ),
-          ],
+        _actionCard(
+          'patient_dashboard.my_cases'.tr(),
+          Icons.folder_shared,
+          Colors.blue,
+          () => Navigator.pushNamed(context, '/patient-consultations'),
+        ),
+        _actionCard(
+          'profile.title'.tr(),
+          Icons.manage_accounts,
+          Colors.orange,
+          () => Navigator.pushNamed(context, '/profile'),
+        ),
+        _actionCard(
+          'patient_dashboard.support'.tr(),
+          Icons.help_outline,
+          Colors.green,
+          () => Navigator.pushNamed(context, '/about'),
         ),
       ],
     );
   }
 
-  Widget _buildActionCard(
+  Widget _actionCard(
     String title,
     IconData icon,
     Color color,
     VoidCallback onTap,
   ) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 32, color: color),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: color.withOpacity(0.2)),
         ),
-      ),
-    );
-  }
-
-  Widget _buildRecentConsultations() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Icon(icon, color: color, size: 30),
+            const SizedBox(height: 8),
             Text(
-              'Recent Consultations',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              'View All',
-              style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 15),
-        Card(
-          elevation: 1,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _buildConsultationItem(
-                  'Dr. Ahmed Ali',
-                  'Skin Rash',
-                  'Yesterday',
-                  'completed',
-                ),
-                const Divider(),
-                _buildConsultationItem(
-                  'Dr. Sarah Mohamed',
-                  'Fever & Cough',
-                  '2 days ago',
-                  'active',
-                ),
-                const Divider(),
-                _buildConsultationItem(
-                  'Dr. Michael Johnson',
-                  'Back Pain',
-                  '1 week ago',
-                  'completed',
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildConsultationItem(
-    String doctorName,
-    String symptoms,
-    String time,
-    String status,
-  ) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(
-        backgroundColor: Colors.blue[100],
-        child: const Icon(Icons.medical_services, color: Colors.blue),
       ),
-      title: Text(
-        doctorName,
-        style: const TextStyle(fontWeight: FontWeight.bold),
-      ),
-      subtitle: Text(symptoms),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(time, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-          const SizedBox(height: 4),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: _getStatusColor(status),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              status.toUpperCase(),
-              style: const TextStyle(fontSize: 10, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-      onTap: () => _viewConsultationDetails(doctorName),
     );
   }
 
-  Widget _buildHealthTips() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Health Tips',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 15),
-        Card(
-          elevation: 1,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Padding(
-            padding: EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ListTile(
-                  leading: Icon(Icons.water_drop, color: Colors.blue),
-                  title: Text('Stay Hydrated'),
-                  subtitle: Text('Drink at least 8 glasses of water daily'),
-                ),
-                ListTile(
-                  leading: Icon(Icons.fitness_center, color: Colors.green),
-                  title: Text('Regular Exercise'),
-                  subtitle: Text('30 minutes of moderate activity daily'),
-                ),
-                ListTile(
-                  leading: Icon(Icons.bedtime, color: Colors.purple),
-                  title: Text('Adequate Sleep'),
-                  subtitle: Text('7-9 hours of quality sleep per night'),
-                ),
-              ],
+  Widget _buildRealRecentConsultations() {
+    if (user == null) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: _apiService.getRecentConsultations(user!.uid, limit: 3),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const LinearProgressIndicator();
+        }
+        if (snapshot.hasError) {
+          return Text("${"common.error".tr()}: ${snapshot.error}");
+        }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Text("patient_dashboard.no_activity".tr()),
             ),
-          ),
-        ),
-      ],
-    );
-  }
+          );
+        }
 
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'active':
-        return Colors.blue;
-      case 'completed':
-        return Colors.green;
-      case 'pending':
-        return Colors.orange;
-      default:
-        return Colors.grey;
-    }
-  }
+        var docs = snapshot.data!.docs;
+        docs.sort((a, b) {
+          var aTime =
+              (a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+          var bTime =
+              (b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+          if (aTime == null || bTime == null) return 0;
+          return bTime.compareTo(aTime);
+        });
 
-  BottomNavigationBar _buildBottomNavigationBar() {
-    return BottomNavigationBar(
-      currentIndex: _currentIndex,
-      onTap: (index) => setState(() => _currentIndex = index),
-      type: BottomNavigationBarType.fixed,
-      selectedItemColor: Colors.blue[700],
-      unselectedItemColor: Colors.grey,
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.dashboard),
-          label: 'Dashboard',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.medical_services),
-          label: 'Consultations',
-        ),
-        BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Messages'),
-        BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
-      ],
-    );
-  }
-
-  // Navigation Methods
-  void _navigateToAIDiagnosis() {
-    Navigator.pushNamed(context, '/ai-diagnosis');
-  }
-
-  void _navigateToConsultations() {
-    Navigator.pushNamed(context, '/patient-consultations');
-  }
-
-  void _navigateToChat() {
-    Navigator.pushNamed(
-      context,
-      '/patient-chat',
-      arguments: {
-        'consultationId': 'sample-consultation-id',
-        'doctorName': 'Dr. Ahmed Ali',
+        return Column(
+          children: docs.map((doc) {
+            var data = doc.data() as Map<String, dynamic>;
+            return _consultationTile(data, doc.id);
+          }).toList(),
+        );
       },
     );
   }
 
-  void _navigateToFileUpload() {
-    Navigator.pushNamed(
-      context,
-      '/file-upload',
-      arguments: {'consultationId': 'sample-consultation-id'},
+  Widget _consultationTile(Map<String, dynamic> data, String docId) {
+    String status = data['status'] ?? 'pending';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        onTap: () {
+          if (status == 'pending') {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => OffersListScreen(consultationId: docId),
+              ),
+            );
+          } else if (status == 'active') {
+            Navigator.pushNamed(
+              context,
+              '/patient-chat',
+              arguments: {
+                'consultationId': docId,
+                'doctorName':
+                    data['doctorName'] ?? 'doctor_dashboard.doctor'.tr(),
+              },
+            );
+          }
+        },
+        leading: CircleAvatar(
+          backgroundColor: status == 'cancelled'
+              ? Colors.red[50]
+              : Colors.blue[50],
+          child: Icon(
+            status == 'cancelled'
+                ? Icons.cancel_presentation
+                : Icons.medical_information,
+            color: status == 'cancelled' ? Colors.red : Colors.blue,
+          ),
+        ),
+        title: Text(
+          data['doctorName'] ?? "patient_dashboard.searching".tr(),
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text("${"ai_diagnosis.result".tr()}: ${data['aiDiagnosis']}"),
+        trailing: status == 'pending'
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // زر الإلغاء السريع
+                  IconButton(
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                      size: 20,
+                    ),
+                    onPressed: () => _cancelConsultation(context, docId),
+                  ),
+                  // زر عرض العروض
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              OffersListScreen(consultationId: docId),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      "Offers",
+                      style: TextStyle(color: Colors.white, fontSize: 11),
+                    ),
+                  ),
+                ],
+              )
+            : Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: status == 'active'
+                      ? Colors.green[100]
+                      : (status == 'cancelled'
+                            ? Colors.red[100]
+                            : Colors.orange[100]),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  status.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: status == 'active'
+                        ? Colors.green[900]
+                        : (status == 'cancelled'
+                              ? Colors.red[900]
+                              : Colors.orange[900]),
+                  ),
+                ),
+              ),
+      ),
     );
   }
 
-  void _navigateToProfile() {
-    Navigator.pushNamed(context, '/profile');
+  Widget _buildSectionTitle(String title, VoidCallback onSeeAll) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        TextButton(
+          onPressed: onSeeAll,
+          child: Text("patient_dashboard.view_all".tr()),
+        ),
+      ],
+    );
   }
 
-  void _showNotifications() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('No new notifications')));
-  }
-
-  void _viewConsultationDetails(String doctorName) {
-    Navigator.pushNamed(
-      context,
-      '/consultation-detail',
-      arguments: {'consultationId': 'sample-id', 'doctorName': doctorName},
+  Widget _buildHealthTipsSection() {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: ListTile(
+        leading: const Icon(Icons.lightbulb, color: Colors.amber),
+        title: Text("patient_dashboard.health_tip_title".tr()),
+        subtitle: Text("patient_dashboard.health_tip_content".tr()),
+      ),
     );
   }
 }

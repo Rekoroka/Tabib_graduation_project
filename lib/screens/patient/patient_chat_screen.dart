@@ -1,5 +1,14 @@
-// lib/screens/patient/patient_chat_screen.dart
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter_rating_bar/flutter_rating_bar.dart';
+import 'dart:io';
+import '../../services/api_service.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 class PatientChatScreen extends StatefulWidget {
   final String consultationId;
@@ -17,222 +26,336 @@ class PatientChatScreen extends StatefulWidget {
 
 class _PatientChatScreenState extends State<PatientChatScreen> {
   final TextEditingController _messageController = TextEditingController();
-  final List<Map<String, dynamic>> _messages = [
-    {
-      'id': '1',
-      'text': 'Hello Doctor, I have been experiencing skin rash for 2 days.',
-      'isPatient': true,
-      'time': '10:00 AM',
-    },
-    {
-      'id': '2',
-      'text': 'Hello! Can you describe the rash in more detail?',
-      'isPatient': false,
-      'time': '10:02 AM',
-    },
-    {
-      'id': '3',
-      'text': 'It\'s red, itchy, and appears on my arms and chest.',
-      'isPatient': true,
-      'time': '10:05 AM',
-    },
-  ];
+  final ApiService _apiService = ApiService();
+  final String? patientId = FirebaseAuth.instance.currentUser?.uid;
 
-  void _sendMessage() {
-    if (_messageController.text.trim().isEmpty) return;
+  bool _isUploading = false;
+  bool _isRecording = false;
+  bool _ratingShown = false; // لمنع تكرار نافذة التقييم
+  final AudioRecorder _audioRecorder = AudioRecorder();
 
-    setState(() {
-      _messages.add({
-        'id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'text': _messageController.text,
-        'isPatient': true,
-        'time': _getCurrentTime(),
-      });
-    });
+  // --- إرسال الرسائل ---
+  void _sendMessage({
+    String? text,
+    String? imageUrl,
+    String? fileUrl,
+    String? fileName,
+    String? audioUrl,
+  }) async {
+    if ((text == null || text.trim().isEmpty) &&
+        imageUrl == null &&
+        fileUrl == null &&
+        audioUrl == null)
+      return;
 
+    final messageData = {
+      'senderId': patientId,
+      'text': text ?? '',
+      'imageUrl': imageUrl,
+      'fileUrl': fileUrl,
+      'fileName': fileName,
+      'audioUrl': audioUrl,
+      'isDoctor': false, // مريض
+      'createdAt': FieldValue.serverTimestamp(),
+    };
+
+    await _apiService.sendMessage(widget.consultationId, messageData);
     _messageController.clear();
   }
 
-  String _getCurrentTime() {
-    return '${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}';
-  }
-
-  void _attachFile() {
-    // TODO: Implement file attachment
-    showModalBottomSheet(
+  // --- نظام التقييم التلقائي ---
+  void _showRatingDialog(String doctorId) {
+    double selectedRating = 5.0;
+    showDialog(
       context: context,
-      builder: (context) => SizedBox(
-        height: 200,
-        child: Column(
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Center(child: Text("rate doctor".tr())),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.photo),
-              title: const Text('Upload Image'),
-              onTap: () {
-                Navigator.pop(context);
-                // Implement image upload
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.description),
-              title: const Text('Upload Document'),
-              onTap: () {
-                Navigator.pop(context);
-                // Implement document upload
-              },
+            const Icon(Icons.stars, color: Colors.amber, size: 50),
+            const SizedBox(height: 15),
+            Text("${"rate experience".tr()} ${widget.doctorName}"),
+            const SizedBox(height: 20),
+            RatingBar.builder(
+              initialRating: 5,
+              minRating: 1,
+              direction: Axis.horizontal,
+              allowHalfRating: true,
+              itemCount: 5,
+              itemPadding: const EdgeInsets.symmetric(horizontal: 4.0),
+              itemBuilder: (context, _) =>
+                  const Icon(Icons.star, color: Colors.amber),
+              onRatingUpdate: (rating) => selectedRating = rating,
             ),
           ],
         ),
+        actions: [
+          Center(
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue[700],
+              ),
+              onPressed: () async {
+                await _submitRating(doctorId, selectedRating);
+                if (mounted) Navigator.pop(context);
+              },
+              child: Text(
+                "common submit".tr(),
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  Future<void> _submitRating(String doctorId, double rating) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('consultations')
+          .doc(widget.consultationId)
+          .update({'patientRating': rating});
+
+      DocumentReference doctorRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(doctorId);
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        DocumentSnapshot doctorSnap = await transaction.get(doctorRef);
+        if (!doctorSnap.exists) return;
+
+        double currentTotalSum = (doctorSnap.get('totalRatingSum') ?? 0)
+            .toDouble();
+        int currentRatingCount = (doctorSnap.get('ratingCount') ?? 0).toInt();
+
+        transaction.update(doctorRef, {
+          'totalRatingSum': currentTotalSum + rating,
+          'ratingCount': currentRatingCount + 1,
+          'rating': (currentTotalSum + rating) / (currentRatingCount + 1),
+        });
+      });
+    } catch (e) {
+      debugPrint("Error rating: $e");
+    }
+  }
+
+  // --- التعامل مع الوسائط (كما في شاشة الطبيب) ---
+  Future<void> _pickImage(ImageSource source) async {
+    final XFile? image = await ImagePicker().pickImage(source: source);
+    if (image != null) {
+      setState(() => _isUploading = true);
+      _sendMessage(imageUrl: image.path);
+      setState(() => _isUploading = false);
+    }
+  }
+
+  Future<void> _handleVoiceNote() async {
+    if (_isRecording) {
+      final path = await _audioRecorder.stop();
+      setState(() => _isRecording = false);
+      if (path != null) _sendMessage(audioUrl: path);
+    } else {
+      if (await _audioRecorder.hasPermission()) {
+        final directory = await getApplicationDocumentsDirectory();
+        final path =
+            '${directory.path}/v_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _audioRecorder.start(const RecordConfig(), path: path);
+        setState(() => _isRecording = true);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.doctorName),
-            const Text(
-              'Online',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
-            ),
-          ],
-        ),
+        title: Text("Dr/ ${widget.doctorName}"),
         backgroundColor: Colors.blue[700],
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.attachment),
-            onPressed: _attachFile,
-            tooltip: 'Attach File',
-          ),
-        ],
       ),
-      body: Column(
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('consultations')
+            .doc(widget.consultationId)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData)
+            return const Center(child: CircularProgressIndicator());
+
+          var consultationData = snapshot.data!.data() as Map<String, dynamic>;
+          String status = consultationData['status'] ?? 'active';
+          String doctorId = consultationData['doctorId'] ?? '';
+
+          // تفعيل نافذة التقييم فور اكتمال الاستشارة
+          if (status == 'completed' &&
+              !_ratingShown &&
+              consultationData['patientRating'] == null) {
+            _ratingShown = true;
+            Future.delayed(Duration.zero, () => _showRatingDialog(doctorId));
+          }
+
+          return Column(
+            children: [
+              if (status == 'completed')
+                _buildFinalPrescriptionBanner(
+                  consultationData['finalPrescription'],
+                ),
+              Expanded(child: _buildMessagesStream()),
+              if (_isUploading) const LinearProgressIndicator(),
+              if (status == 'active')
+                _buildInputArea()
+              else
+                _buildClosedChatNote(),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMessagesStream() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('consultations')
+          .doc(widget.consultationId)
+          .collection('messages')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+        return ListView.builder(
+          reverse: true,
+          padding: const EdgeInsets.all(15),
+          itemCount: snapshot.data!.docs.length,
+          itemBuilder: (context, index) {
+            var msg = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+            return _buildMessageBubble(msg, msg['senderId'] == patientId);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFinalPrescriptionBanner(String? prescription) {
+    return Container(
+      width: double.infinity,
+      color: Colors.green[50],
+      padding: const EdgeInsets.all(12),
+      child: Column(
         children: [
-          // Messages List
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              reverse: false,
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                return _buildMessageBubble(message);
-              },
+          Text(
+            "final prescription".tr(),
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.green,
             ),
           ),
-
-          // Message Input
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border(top: BorderSide(color: Colors.grey[300]!)),
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.attach_file),
-                  onPressed: _attachFile,
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: const InputDecoration(
-                      hintText: 'Type a message...',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    maxLines: null,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                CircleAvatar(
-                  backgroundColor: Colors.blue[700],
-                  child: IconButton(
-                    icon: const Icon(Icons.send, color: Colors.white),
-                    onPressed: _sendMessage,
-                  ),
-                ),
-              ],
-            ),
+          const SizedBox(height: 5),
+          Text(
+            prescription ?? "",
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildMessageBubble(Map<String, dynamic> message) {
-    final isPatient = message['isPatient'] as bool;
-
+  Widget _buildInputArea() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey[300]!)),
+      ),
       child: Row(
-        mainAxisAlignment: isPatient
-            ? MainAxisAlignment.end
-            : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!isPatient) ...[
-            const CircleAvatar(
-              radius: 16,
-              backgroundColor: Colors.green,
-              child: Icon(
-                Icons.medical_services,
-                size: 16,
-                color: Colors.white,
+          IconButton(
+            icon: const Icon(Icons.add_a_photo, color: Colors.blue),
+            onPressed: () => _pickImage(ImageSource.gallery),
+          ),
+          Expanded(
+            child: TextField(
+              controller: _messageController,
+              decoration: InputDecoration(
+                hintText: "chat type message".tr(),
+                border: InputBorder.none,
               ),
             ),
-            const SizedBox(width: 8),
-          ],
-          Flexible(
-            child: Column(
-              crossAxisAlignment: isPatient
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isPatient ? Colors.blue[100] : Colors.grey[100],
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(12),
-                      topRight: const Radius.circular(12),
-                      bottomLeft: isPatient
-                          ? const Radius.circular(12)
-                          : const Radius.circular(4),
-                      bottomRight: isPatient
-                          ? const Radius.circular(4)
-                          : const Radius.circular(12),
-                    ),
-                  ),
-                  child: Text(
-                    message['text'],
-                    style: TextStyle(
-                      color: isPatient ? Colors.blue[900] : Colors.black87,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  message['time'],
-                  style: TextStyle(fontSize: 10, color: Colors.grey[500]),
-                ),
-              ],
+          ),
+          GestureDetector(
+            onLongPress: _handleVoiceNote,
+            onLongPressUp: _handleVoiceNote,
+            child: Icon(
+              _isRecording ? Icons.stop_circle : Icons.mic,
+              color: _isRecording ? Colors.red : Colors.blue,
             ),
           ),
-          if (isPatient) ...[
-            const SizedBox(width: 8),
-            const CircleAvatar(
-              radius: 16,
-              backgroundColor: Colors.blue,
-              child: Icon(Icons.person, size: 16, color: Colors.white),
-            ),
-          ],
+          const SizedBox(width: 10),
+          IconButton(
+            icon: const Icon(Icons.send, color: Colors.blue),
+            onPressed: () => _sendMessage(text: _messageController.text),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildClosedChatNote() {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      color: Colors.grey[100],
+      child: Center(
+        child: Text(
+          "chat was closed".tr(),
+          style: const TextStyle(
+            color: Colors.grey,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(Map<String, dynamic> msg, bool isMe) {
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 5),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isMe ? Colors.blue[100] : Colors.grey[200],
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Column(
+          crossAxisAlignment: isMe
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            if (msg['imageUrl'] != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(
+                  File(msg['imageUrl']),
+                  height: 150,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            if (msg['audioUrl'] != null)
+              const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.play_circle, color: Colors.blue),
+                  SizedBox(width: 5),
+                  Text("Voice Note"),
+                ],
+              ),
+            if (msg['text'] != null && msg['text'].toString().isNotEmpty)
+              Text(msg['text'], style: const TextStyle(fontSize: 15)),
+          ],
+        ),
       ),
     );
   }

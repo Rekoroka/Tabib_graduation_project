@@ -1,5 +1,9 @@
-// lib/screens/doctor/doctor_consultations_screen.dart
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/api_service.dart';
+import 'package:easy_localization/easy_localization.dart';
+import 'send_bid_screen.dart'; // استيراد شاشة إرسال العروض
 
 class DoctorConsultationsScreen extends StatefulWidget {
   const DoctorConsultationsScreen({super.key});
@@ -12,241 +16,161 @@ class DoctorConsultationsScreen extends StatefulWidget {
 class _DoctorConsultationsScreenState extends State<DoctorConsultationsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final ApiService _apiService = ApiService();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    // التبويبات: طلبات جديدة (للمزايدة) وحالات نشطة (بعد دفع المريض)
+    _tabController = TabController(length: 2, vsync: this);
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
+  // تم حذف دالة _acceptCase القديمة لأن التفعيل يتم الآن عبر الدفع من المريض
 
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Consultations'),
-        backgroundColor: Colors.green[700],
+        title: Text("consultation management".tr()),
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: Colors.white,
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          tabs: const [
-            Tab(text: 'Pending (5)'),
-            Tab(text: 'Active (3)'),
-            Tab(text: 'Completed (12)'),
+          tabs: [
+            Tab(text: "doctor_dashboard.new_requests".tr()), // طلبات للمزايدة
+            Tab(
+              text: "doctor_dashboard.active_cases".tr(),
+            ), // حالات قيد المتابعة
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildConsultationsList('pending'),
-          _buildConsultationsList('active'),
-          _buildConsultationsList('completed'),
+          // التبويب الأول: الحالات المتاحة حالياً (Pending)
+          _buildList(
+            _apiService.getConsultationsForDoctor(status: 'pending'),
+            true,
+          ),
+          // التبويب الثاني: الحالات التي اختار فيها المريض هذا الطبيب ودفع (Active)
+          _buildList(
+            _apiService.getConsultationsForDoctor(
+              doctorId: uid,
+              status: 'active',
+            ),
+            false,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildConsultationsList(String status) {
-    // Sample data - replace with actual data from backend
-    final List<Map<String, dynamic>> consultations = [
-      {
-        'id': '1',
-        'patientName': 'Ahmed Mohamed',
-        'symptoms': 'Fever, Headache, Fatigue',
-        'time': 'Today, 09:30 AM',
-        'status': 'pending',
-        'aiDiagnosis': 'Possible Viral Infection',
-        'confidence': 85,
-      },
-      {
-        'id': '2',
-        'patientName': 'Sarah Ali',
-        'symptoms': 'Skin Rash, Itching',
-        'time': 'Today, 10:15 AM',
-        'status': 'pending',
-        'aiDiagnosis': 'Contact Dermatitis',
-        'confidence': 78,
-      },
-      {
-        'id': '3',
-        'patientName': 'Mohamed Hassan',
-        'symptoms': 'Back Pain, Limited Mobility',
-        'time': 'Today, 11:00 AM',
-        'status': 'pending',
-        'aiDiagnosis': 'Muscle Strain',
-        'confidence': 92,
-      },
-    ];
+  Widget _buildList(Stream<QuerySnapshot> stream, bool isPending) {
+    final String currentDoctorId = FirebaseAuth.instance.currentUser?.uid ?? "";
 
-    final filteredConsultations = consultations
-        .where((c) => c['status'] == status)
-        .toList();
+    return StreamBuilder<QuerySnapshot>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: filteredConsultations.length,
-      itemBuilder: (context, index) {
-        final consultation = filteredConsultations[index];
-        return _buildConsultationCard(consultation);
-      },
-    );
-  }
+        if (snapshot.hasError ||
+            !snapshot.hasData ||
+            snapshot.data!.docs.isEmpty) {
+          return Center(
+            child: Text(
+              isPending
+                  ? "doctor_dashboard.no_new_requests".tr()
+                  : "doctor_dashboard.no_active_cases".tr(),
+              style: const TextStyle(color: Colors.grey),
+            ),
+          );
+        }
 
-  Widget _buildConsultationCard(Map<String, dynamic> consultation) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  consultation['patientName'],
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(consultation['status']),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    consultation['status'].toString().toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              consultation['symptoms'],
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              consultation['time'],
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-            ),
-            const SizedBox(height: 12),
-            // AI Diagnosis Section
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue[100]!),
+        var docs = snapshot.data!.docs;
+
+        // ترتيب يدوي: الأحدث أولاً
+        docs.sort((a, b) {
+          var aData = a.data() as Map<String, dynamic>;
+          var bData = b.data() as Map<String, dynamic>;
+          var aTime = aData['createdAt'] as Timestamp?;
+          var bTime = bData['createdAt'] as Timestamp?;
+          if (aTime == null || bTime == null) return 0;
+          return bTime.compareTo(aTime);
+        });
+
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          itemCount: docs.length,
+          itemBuilder: (context, index) {
+            var doc = docs[index];
+            var data = doc.data() as Map<String, dynamic>;
+
+            return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.psychology, size: 16, color: Colors.blue),
-                      SizedBox(width: 4),
-                      Text(
-                        'AI Diagnosis',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(12),
+                leading: CircleAvatar(
+                  backgroundColor: isPending
+                      ? Colors.orange[50]
+                      : Colors.green[50],
+                  child: Icon(
+                    isPending
+                        ? Icons.gavel
+                        : Icons.chat, // أيقونة المطرقة للمزايدة
+                    color: isPending ? Colors.orange : Colors.green,
+                  ),
+                ),
+                title: Text(
+                  data['patientName'] ?? "auth.patient".tr(),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  "${"ai_diagnosis.result".tr()}: ${data['aiDiagnosis'] ?? 'N/A'}",
+                ),
+                trailing: isPending
+                    ? ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue[800],
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        // التعديل: الزر الآن يفتح شاشة إرسال العرض بدلاً من القبول المباشر
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                SendBidScreen(consultationId: doc.id),
+                          ),
+                        ),
+                        child: const Text("Bid"),
+                      )
+                    : IconButton(
+                        icon: const Icon(
+                          Icons.chat_bubble_outline,
+                          color: Colors.green,
+                        ),
+                        onPressed: () => Navigator.pushNamed(
+                          context,
+                          '/doctor-chat',
+                          arguments: {
+                            'consultationId': doc.id,
+                            'patientName': data['patientName'],
+                          },
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    consultation['aiDiagnosis'],
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${consultation['confidence']}% confidence',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
-                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _viewConsultationDetails(consultation),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.blue,
-                      side: const BorderSide(color: Colors.blue),
-                    ),
-                    child: const Text('View Details'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () => _startChat(consultation),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[700],
-                    ),
-                    child: const Text('Start Chat'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'pending':
-        return Colors.orange;
-      case 'active':
-        return Colors.blue;
-      case 'completed':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  void _viewConsultationDetails(Map<String, dynamic> consultation) {
-    // TODO: Navigate to consultation details
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Viewing details for ${consultation['patientName']}'),
-      ),
-    );
-  }
-
-  void _startChat(Map<String, dynamic> consultation) {
-    // TODO: Navigate to chat screen
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Starting chat with ${consultation['patientName']}'),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 }
